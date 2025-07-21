@@ -126,6 +126,15 @@ def main():
     # 颜色区分不同温度
     colors = {"300K": "#1f77b4", "500K": "#ff7f0e", "700K": "#2ca02c"}
 
+    # 存储每个温度的处理结果
+    results = {}
+
+    # 处理数据
+    for temp, folder in temp_folders.items():
+        times, crystallinities = process_temperature_folder(folder)
+        if times and crystallinities:
+            results[temp] = (times, crystallinities)
+
     # 初始化绘图样式
     plot_style = PlotProperties(
         xlabel="Time (ps)",
@@ -134,14 +143,13 @@ def main():
     )
     plt = plot_style.get_plot_style()
 
-    for temp, folder in temp_folders.items():
-        times, crystallinities = process_temperature_folder(folder)
-        if times and crystallinities:
-            plt.plot(
-                times, crystallinities,
-                marker="o", markersize=4, linestyle="-", color=colors[temp],
-                label=f"{temp}"
-            )
+    # 绘制数据
+    for temp, (times, crystallinities) in results.items():
+        plt.plot(
+            times, crystallinities,
+            marker="o", markersize=4, linestyle="-", color=colors[temp],
+            label=f"{temp}"
+        )
 
     # 设置图例和标题
     plt.legend(
@@ -154,7 +162,12 @@ def main():
     )
     plt.title("Crystallinity vs Time ",
               fontname=plot_style.font_type, size=plot_style.font_size, weight="bold")
-    plt.xlim(0, max([max(times) for times, _ in temp_folders.values() if times]))
+
+    # 设置 x 轴范围
+    if any(results):
+        max_time = max(max(times) for times, _ in results.values() if times)
+        plt.xlim(0, max_time)
+
     plt.ylim(0, 1)  # 完善度范围 0-1
     plt.show()
 
