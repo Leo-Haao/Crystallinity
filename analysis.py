@@ -64,7 +64,7 @@ def custom_histogram_numpy(data, bins):
 
 
 # --- 主函数：计算RDF和n(r)（NumPy版本） ---
-def calculate_oh_rdf_numpy(structure: Structure, center_element: str, neighbor_element: str, dr: float, max_r: float = 10.0):
+def calculate_oh_rdf_numpy(structure: Structure, center_element: str, neighbor_element: str, dr: float, max_r: float = 10.0, min_r: float = 0.5):
     """
     用NumPy计算径向分布函数g(r)和累积数n(r)（CPU版本）。
     """
@@ -96,6 +96,8 @@ def calculate_oh_rdf_numpy(structure: Structure, center_element: str, neighbor_e
     all_distances = pbc_distances_numpy(
         center_coords, neighbor_coords, lattice_matrix, inv_lattice_matrix, max_r=max_r
     )
+    # 过滤掉小于min_r的距离
+    all_distances = all_distances[all_distances >= min_r]
     print(f"计算了 {len(all_distances)} 个有效距离。")
 
     if len(all_distances) == 0:
@@ -183,7 +185,12 @@ def plot_rdf_nr_data(r_for_nr, nr_list, r_for_gr, gr_list, color, label,
     gr_spline = UnivariateSpline(r_for_gr, gr_smoothed, s=3, k=3)
 
     r_nr_smooth = np.linspace(r_for_nr.min(), r_for_nr.max(), 500)
-    r_gr_smooth = np.linspace(r_for_gr.min(), r_for_gr.max(), 500)
+
+    # 找到第一个非零g(r)值的位置，以避免曲线在开头翘起
+    first_gr_index = np.argmax(gr_list > 1e-4)
+    r_gr_start = r_for_gr[first_gr_index] if first_gr_index > 0 else r_for_gr.min()
+
+    r_gr_smooth = np.linspace(r_gr_start, r_for_gr.max(), 500)
 
     nr_smooth = nr_spline(r_nr_smooth)
     gr_smooth = gr_spline(r_gr_smooth)
@@ -228,6 +235,7 @@ def plot_rdf_nr_data(r_for_nr, nr_list, r_for_gr, gr_list, color, label,
 
 
 def main():
+    plt.close('all')
     # 你的数据根目录（CIF文件所在）
     base_data_root = r'E:\坚果云\MD works\2025.PEO.Li.MD_work\07.separated_300_and_500K\lowest Frame cif'
     temperature_folders = {
@@ -297,10 +305,10 @@ def main():
             continue
 
         for atom_type, (label, color) in atom_mapping.items():
-            # 获取统一的Y轴范围（向上取整）
+            # 获取统一的Y轴范围（向上取整）,并设置一个最小值以避免空图
             y_nr_max = np.ceil(max_values[atom_type]['nr'] * 2) / 2
             y_gr_max = np.ceil(max_values[atom_type]['gr'] * 2) / 2
-            y_limits = (0, y_nr_max, 0, y_gr_max)
+            y_limits = (0, max(y_nr_max, 1.0), 0, max(y_gr_max, 1.0))
 
             for frame_num, time_point in temp_info["frame_time_map"].items():
                 cif_path = os.path.join(temp_path, f"Frame_{frame_num}.cif")
