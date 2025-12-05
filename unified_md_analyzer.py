@@ -53,7 +53,7 @@ TEMPERATURE_CONFIGS = {
             "run_5": ["supercell_17.xyz", "3D Atomistic.xyz"],
             "run_6": ["supercell_17.xyz", "3D Atomistic.xyz"],
             "run_7": ["supercell_17.xyz", "3D Atomistic.xyz"],
-            "run_9": ["PEO_Li_final_supercell Forcite MSD.xcd"],
+            "run_10": ["supercell_17.xyz", "3D Atomistic.xyz"],
         },
         'BASE_PATH': {
             "run_1": os.path.join(ROOT_FOLDER, "supercell_17_700K_run_1"),
@@ -62,7 +62,7 @@ TEMPERATURE_CONFIGS = {
             "run_5": os.path.join(ROOT_FOLDER, "supercell_17_700K_run_5"),
             "run_6": os.path.join(ROOT_FOLDER, "supercell_17_700K_run_6"),
             "run_7": os.path.join(ROOT_FOLDER, "supercell_17_700K_run_7"),
-            "run_9": r"E:\Materials Studio Projects\PEO_project_1_2_Files\Documents\PEO_RUN\crystal\10ns\700K\supercell_17_700K_run_9",
+            "run_10": os.path.join(ROOT_FOLDER, "supercell_17_700K_run_10"),
         },
         'OUTPUT_CSV': os.path.join(ROOT_FOLDER, "MSD_700K_unified.csv")
     },
