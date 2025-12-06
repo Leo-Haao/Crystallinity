@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 A unified script for calculating and plotting Mean Squared Displacement (MSD) data
-from molecular dynamics simulations.
+from molecular dynamics simulations for multiple temperatures.
 
-This script performs the following steps:
+This script performs the following steps for each configured temperature (e.g., 700K, 600K):
 1.  Calculates MSD from raw XYZ and XCD trajectory files for a list of specified simulation runs.
     - It handles interrupted simulations by merging trajectory segments and correcting timestamps.
-    - The calculated MSD data (total and per-component) is saved to a single CSV file.
+    - The calculated MSD data (total and per-component) is saved to a temperature-specific CSV file.
 2.  Loads the newly created CSV data along with data from additional, pre-existing XCD files.
 3.  Generates two styles of plots from the combined dataset:
     a)  **Style 1 (Individual Runs):** Each simulation run is plotted as a distinct colored line
@@ -15,6 +15,7 @@ This script performs the following steps:
         with a prominent, thick red line representing the calculated average MSD. This style
         emphasizes the overall trend.
 4.  All plots are styled using 'Times New Roman' font and formatted for publication quality.
+5.  Finally, all generated plots are displayed on screen.
 """
 
 import os
@@ -28,34 +29,25 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 
 # ==============================================================================
-# --- 1. Configuration ---
+# --- 1. General Configuration ---
 # ==============================================================================
-TEMPERATURE = 700
-CUTOFF_TIME = 27.0
 TARGET_ION = "Li"
 ROOT_FOLDER = r"E:\Materials Studio Projects\PEO_project_1_2_Files\Documents\Tri_comb\Crystal"
-RUN_FOLDERS = [
-    "supercell_17_700K_run_1",
-    "supercell_17_700K_run_4",
-    "supercell_17_700K_run_5",
-    "supercell_17_700K_run_6",
-    "supercell_17_700K_run_7",
-    "supercell_17_700K_run_10"
-]
-XCD_FILE_PATHS = [
-    r"E:\Materials Studio Projects\PEO_project_1_2_Files\Documents\PEO_RUN\crystal\10ns\700K\supercell_17_700K_run_2\PEO_Li_final_supercell Forcite MSD.xcd",
-]
-OUTPUT_CSV_PATH = os.path.join(ROOT_FOLDER, "MSD_from_27ps_final.csv")
-OUTPUT_DIR_PLOTS = os.path.join(ROOT_FOLDER, "combined_plots_final_format")
 INTERP_STEP = 1.0   # ps, for interpolation step in averaging
 
-# Y-axis limits configuration for plotting
+# Plotting style configurations (used as lookups)
 Y_LIMITS_CONFIG = {
     700: {
         'total': {'ylim': (0, 10000), 'yticks': np.arange(0, 10001, 1800)},
         'xx component': {'ylim': (0, 3000), 'yticks': np.arange(0, 3001, 600), 'label': 'X[100]'},
         'yy component': {'ylim': (0, 3000), 'yticks': np.arange(0, 3001, 600), 'label': 'Y[010]'},
         'zz component': {'ylim': (0, 6000), 'yticks': np.arange(0, 6001, 1000), 'label': 'Z[001]'},
+    },
+    600: { # Assuming 600K might have smaller MSD values, adjust if necessary
+        'total': {'ylim': (0, 8000), 'yticks': np.arange(0, 8001, 1600)},
+        'xx component': {'ylim': (0, 2500), 'yticks': np.arange(0, 2501, 500), 'label': 'X[100]'},
+        'yy component': {'ylim': (0, 2500), 'yticks': np.arange(0, 2501, 500), 'label': 'Y[010]'},
+        'zz component': {'ylim': (0, 4000), 'yticks': np.arange(0, 4001, 800), 'label': 'Z[001]'},
     }
 }
 SETOFF_TIMES = {
@@ -65,7 +57,38 @@ SETOFF_TIMES = {
 }
 
 # ==============================================================================
-# --- 2. Core Data Parsing and MSD Calculation ---
+# --- 2. Temperature-Specific Configurations ---
+# ==============================================================================
+CONFIG_700K = {
+    'TEMP': 700,
+    'CUTOFF_TIME': 27.0,
+    'RUN_FOLDERS': [
+        "supercell_17_700K_run_1", "supercell_17_700K_run_4", "supercell_17_700K_run_5",
+        "supercell_17_700K_run_6", "supercell_17_700K_run_7", "supercell_17_700K_run_10"
+    ],
+    'XCD_PATHS': [
+        r"E:\Materials Studio Projects\PEO_project_1_2_Files\Documents\PEO_RUN\crystal\10ns\700K\supercell_17_700K_run_2\PEO_Li_final_supercell Forcite MSD.xcd",
+    ],
+    'OUTPUT_CSV_PATH': os.path.join(ROOT_FOLDER, "MSD_from_27ps_700K_final.csv"),
+}
+
+CONFIG_600K = {
+    'TEMP': 600,
+    'CUTOFF_TIME': 22.5,
+    'RUN_FOLDERS': [
+        "supercell_17_600K_run_11", "supercell_17_600K_run_12", "supercell_17_600K_run_13",
+        "supercell_17_600K_run_14", "supercell_17_600K_run_15"
+    ],
+    'XCD_PATHS': [
+        r"E:\Materials Studio Projects\PEO_project_1_2_Files\Documents\PEO_RUN\crystal\10ns\600K\supercell_17_600K_run_3\PEO_Li_final_supercell Forcite MSD.xcd",
+        r"E:\Materials Studio Projects\PEO_project_1_2_Files\Documents\PEO_RUN\crystal\10ns\600K\supercell_17_600K_run_7\PEO_Li_final_supercell Forcite MSD.xcd"
+    ],
+    'OUTPUT_CSV_PATH': os.path.join(ROOT_FOLDER, "MSD_from_22_5ps_600K.csv")
+}
+
+
+# ==============================================================================
+# --- 3. Core Data Parsing and MSD Calculation ---
 # ==============================================================================
 def parse_xyz_file(file_path: str) -> List[Dict]:
     """Parses an XYZ file and returns a list of frames."""
@@ -82,20 +105,17 @@ def parse_xyz_file(file_path: str) -> List[Dict]:
                 continue
             if natoms is None:
                 natoms = int(line)
-            i += 1 # Move to the comment line
+            i += 1
             comment_line = lines[i].strip()
             time_match = re.search(r'Time: (\d+\.?\d*)', comment_line)
             if not time_match:
-                i += natoms + 1 # Skip this frame if no time is found
+                i += natoms + 1
                 continue
             frame_time = float(time_match.group(1))
-            i += 1 # Move to atom coordinates
-            atom_lines = []
-            for _ in range(natoms):
-                if i < len(lines):
-                    atom_lines.append(lines[i].strip())
-                i += 1
+            i += 1
+            atom_lines = [lines[j].strip() for j in range(i, i + natoms)]
             frames.append({'time': frame_time, 'atoms': atom_lines})
+            i += natoms
     except Exception as e:
         print(f"[Error] Failed to parse XYZ file {os.path.basename(file_path)}: {e}")
     return frames
@@ -111,39 +131,30 @@ def parse_xcd_file_for_lattice(file_path: str) -> List[List[float]]:
             series_name = series.get('Name', '')
             for axis in ['A', 'B', 'C']:
                 if f'Length {axis}' in series_name:
-                    for point in series.findall('POINT_2D'):
-                        xy_str = point.get('XY', '')
-                        if ',' in xy_str:
-                            try:
-                                length = float(xy_str.split(',')[1])
-                                axis_data[axis].append(length)
-                            except (ValueError, IndexError):
-                                continue
-        min_len = min(len(axis_data['A']), len(axis_data['B']), len(axis_data['C']))
+                    points = series.findall('POINT_2D')
+                    axis_data[axis] = [float(p.get('XY').split(',')[1]) for p in points if ',' in p.get('XY')]
+        min_len = min(len(d) for d in axis_data.values())
         for i in range(min_len):
             lattice_params.append([axis_data['A'][i], axis_data['B'][i], axis_data['C'][i]])
     except Exception as e:
         print(f"[Error] Failed to parse XCD for lattice {os.path.basename(file_path)}: {e}")
     return lattice_params
 
-def process_single_sample_for_msd(folder_name: str, output_file: str):
+def process_single_sample_for_msd(folder_name: str, output_file: str, cutoff_time: float):
     """Processes a single sample, calculates MSD, and appends the result to the output file."""
     folder_path = os.path.join(ROOT_FOLDER, folder_name)
     print(f"\n[Processing] Sample: {folder_name}")
 
-    # Define file paths
     traj1_path = os.path.join(folder_path, "supercell_17.xyz")
     traj2_path = os.path.join(folder_path, "3D Atomistic.xyz")
     xcd1_path = os.path.join(folder_path, "PEO_Li_final_supercell Forcite Cell parameters.xcd")
     xcd2_path = os.path.join(folder_path, "3D Atomistic Forcite Cell parameters.xcd")
 
-    # Check for file existence
     missing_files = [f for f in [traj1_path, traj2_path, xcd1_path, xcd2_path] if not os.path.exists(f)]
     if missing_files:
         print(f"[Warning] Sample {folder_name} is missing files: {', '.join(map(os.path.basename, missing_files))}, skipping.")
         return
 
-    # Parse trajectory and lattice files
     traj1_frames = parse_xyz_file(traj1_path)
     traj2_frames = parse_xyz_file(traj2_path)
     lattice1 = parse_xcd_file_for_lattice(xcd1_path)
@@ -153,346 +164,220 @@ def process_single_sample_for_msd(folder_name: str, output_file: str):
         print(f"[Warning] Sample {folder_name} has inconsistent frame or lattice data, skipping.")
         return
 
-    # Merge trajectories and correct timestamps
     t1_end = traj1_frames[-1]['time']
     for frame in traj2_frames:
         frame['time'] += t1_end
-
     total_frames = traj1_frames + traj2_frames
     total_lattice = lattice1 + lattice2
 
-    # Truncate data after CUTOFF_TIME
     try:
-        cutoff_index = next(i for i, frame in enumerate(total_frames) if frame['time'] >= CUTOFF_TIME)
+        cutoff_index = next(i for i, frame in enumerate(total_frames) if frame['time'] >= cutoff_time)
     except StopIteration:
-        print(f"[Warning] No data found after {CUTOFF_TIME} ps for {folder_name}, skipping.")
+        print(f"[Warning] No data found after {cutoff_time} ps for {folder_name}, skipping.")
         return
 
     frames_truncated = total_frames[cutoff_index:]
     lattice_truncated = total_lattice[cutoff_index:]
     timestamps_truncated = [frame['time'] for frame in frames_truncated]
 
-    print(f"[Info] Total trajectory time: {total_frames[-1]['time']:.2f} ps")
-    print(f"[Info] Truncated to {len(frames_truncated)} data points from {timestamps_truncated[0]:.2f} ps to {timestamps_truncated[-1]:.2f} ps")
-
-    # Calculate MSD
     target_indices = [i for i, atom in enumerate(frames_truncated[0]['atoms']) if atom.split()[0] == TARGET_ION]
     if not target_indices:
         print(f"[Warning] Target ion {TARGET_ION} not found in {folder_name}, skipping.")
         return
 
-    num_ions = len(target_indices)
-    num_frames = len(frames_truncated)
-
-    # Unwrap coordinates to handle periodic boundary conditions
+    num_ions, num_frames = len(target_indices), len(frames_truncated)
     unwrapped_coords = np.zeros((num_ions, num_frames, 3))
+
     for i, ion_idx in enumerate(target_indices):
-        coords = np.array(list(map(float, frames_truncated[0]['atoms'][ion_idx].split()[1:4])))
-        unwrapped_coords[i, 0, :] = coords
+        unwrapped_coords[i, 0, :] = np.array(list(map(float, frames_truncated[0]['atoms'][ion_idx].split()[1:4])))
 
     for frame_idx in range(1, num_frames):
-        prev_lattice = np.array(lattice_truncated[frame_idx-1])
-        curr_lattice = np.array(lattice_truncated[frame_idx])
-        box_dims = (prev_lattice + curr_lattice) / 2
-
+        box_dims = (np.array(lattice_truncated[frame_idx-1]) + np.array(lattice_truncated[frame_idx])) / 2
         for i, ion_idx in enumerate(target_indices):
-            prev_coords = np.array(list(map(float, frames_truncated[frame_idx-1]['atoms'][ion_idx].split()[1:4])))
+            prev_coords = unwrapped_coords[i, frame_idx-1, :]
             curr_coords = np.array(list(map(float, frames_truncated[frame_idx]['atoms'][ion_idx].split()[1:4])))
-            displacement = curr_coords - prev_coords
-            # Correct for periodic boundary crossing
+            displacement = curr_coords - np.array(list(map(float, frames_truncated[frame_idx-1]['atoms'][ion_idx].split()[1:4])))
             correction = box_dims * np.round(displacement / box_dims)
-            unwrapped_coords[i, frame_idx, :] = unwrapped_coords[i, frame_idx-1, :] + (displacement - correction)
+            unwrapped_coords[i, frame_idx, :] = prev_coords + (displacement - correction)
 
     displacements = unwrapped_coords - unwrapped_coords[:, 0:1, :]
-    msd_total = np.mean(np.sum(displacements**2, axis=2), axis=0)
-    msd_x = np.mean(displacements[:, :, 0]**2, axis=0)
-    msd_y = np.mean(displacements[:, :, 1]**2, axis=0)
-    msd_z = np.mean(displacements[:, :, 2]**2, axis=0)
-
-    relative_time = np.array(timestamps_truncated) - timestamps_truncated[0]
     msd_df = pd.DataFrame({
         'Sample_Name': folder_name,
         'Sample_Time (ps)': timestamps_truncated,
-        'Relative_Time (ps)': relative_time,
-        'Total_MSD (Å²)': msd_total,
-        'X_MSD (Å²)': msd_x,
-        'Y_MSD (Å²)': msd_y,
-        'Z_MSD (Å²)': msd_z
+        'Relative_Time (ps)': np.array(timestamps_truncated) - timestamps_truncated[0],
+        'Total_MSD (Å²)': np.mean(np.sum(displacements**2, axis=2), axis=0),
+        'X_MSD (Å²)': np.mean(displacements[:, :, 0]**2, axis=0),
+        'Y_MSD (Å²)': np.mean(displacements[:, :, 1]**2, axis=0),
+        'Z_MSD (Å²)': np.mean(displacements[:, :, 2]**2, axis=0)
     })
 
-    # Append to CSV
-    msd_df.to_csv(
-        output_file,
-        mode='a',
-        index=False,
-        header=not os.path.exists(output_file),
-        float_format='%.6f',
-        encoding='utf-8-sig'
-    )
-
-    print(f"[Success] Sample {folder_name} processed and results saved.")
-
-    # Explicitly free memory
-    del traj1_frames, traj2_frames, total_frames, frames_truncated, unwrapped_coords, displacements, msd_df
+    msd_df.to_csv(output_file, mode='a', index=False, header=not os.path.exists(output_file), float_format='%.6f', encoding='utf-8-sig')
+    print(f"[Success] Sample {folder_name} processed.")
     gc.collect()
 
-def run_msd_calculation():
-    """Main function to orchestrate the MSD calculation for all specified folders."""
-    print("=" * 60)
-    print(f"Starting MSD Calculation for {len(RUN_FOLDERS)} samples")
-    print(f"Target Ion: {TARGET_ION} | Output CSV: {OUTPUT_CSV_PATH}")
-    print("=" * 60)
-
-    # Clean up previous results if any
-    if os.path.exists(OUTPUT_CSV_PATH):
-        os.remove(OUTPUT_CSV_PATH)
-
-    for folder_name in RUN_FOLDERS:
-        process_single_sample_for_msd(folder_name, OUTPUT_CSV_PATH)
-
-    print(f"\n" + "=" * 60)
-    print(f"MSD calculation complete!")
-    print(f"Aggregated results saved to: {OUTPUT_CSV_PATH}")
-    print("=" * 60)
+def run_msd_calculation(config: Dict):
+    """Orchestrates the MSD calculation for a given temperature configuration."""
+    temp, run_folders, output_csv, cutoff_time = config['TEMP'], config['RUN_FOLDERS'], config['OUTPUT_CSV_PATH'], config['CUTOFF_TIME']
+    print("=" * 70)
+    print(f"Starting MSD Calculation for {temp}K ({len(run_folders)} samples)")
+    print(f"Output CSV: {os.path.basename(output_csv)}")
+    print("=" * 70)
+    if os.path.exists(output_csv):
+        os.remove(output_csv)
+    for folder_name in run_folders:
+        process_single_sample_for_msd(folder_name, output_csv, cutoff_time)
+    print(f"\n[Complete] MSD calculation for {temp}K finished.")
 
 # ==============================================================================
-# --- 3. Plotting ---
+# --- 4. Plotting ---
 # ==============================================================================
 class PlotProperties:
-    """A class to handle the styling of matplotlib plots for consistency."""
-    def __init__(self, font_type="Times New Roman", font_size=26, axis_ticks_font_size=24,
-                 label_x=r'Time / ps', label_y=r'MSD / $\AA^2$', fig_size=(8, 6), legend_size=20):
-        self.font_type = font_type
-        self.font_size = font_size
-        self.axis_ticks_font_size = axis_ticks_font_size
-        self.label_x = label_x
-        self.label_y = label_y
-        self.fig_size = fig_size
-        self.legend_size = legend_size
+    def __init__(self, font_type="Times New Roman", font_size=26, axis_ticks_font_size=24, label_x=r'Time / ps', label_y=r'MSD / $\AA^2$', fig_size=(8, 6), legend_size=20):
+        self.font_type, self.font_size, self.axis_ticks_font_size = font_type, font_size, axis_ticks_font_size
+        self.label_x, self.label_y, self.fig_size, self.legend_size = label_x, label_y, fig_size, legend_size
 
     def apply_style(self):
-        """Applies the defined style to the current pyplot figure."""
         plt.figure(figsize=self.fig_size)
-
         axis_font = {'fontname': self.font_type, 'size': self.font_size, 'weight': 'bold'}
-
         plt.rc('font', **{'family': self.font_type, 'size': self.legend_size, 'weight': 'bold'})
-
         plt.rcParams['mathtext.fontset'] = 'custom'
         plt.rcParams['mathtext.rm'] = self.font_type
-        plt.rcParams['mathtext.it'] = f'{self.font_type}:italic'
-        plt.rcParams['mathtext.bf'] = f'{self.font_type}:bold'
-
         plt.xlabel(self.label_x, **axis_font)
         plt.ylabel(self.label_y, **axis_font)
-
         ax = plt.gca()
-        thickness = 2
         for spine in ax.spines.values():
-            spine.set_linewidth(thickness)
-
+            spine.set_linewidth(2)
         ax.tick_params(axis='both', direction='in', width=2, length=6, top=True, right=True, labelsize=self.axis_ticks_font_size)
-
         plt.tight_layout()
         return plt
 
 def extract_msd_from_xcd(file_path, component=None):
-    """Extracts MSD data series from an XCD file (for pre-computed MSD)."""
+    """Extracts a pre-computed MSD data series from an XCD file."""
     msd_results = {}
-    start_extracting = False
     target_line = 'Total MSD' if component is None else component
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
-            for line in file:
-                if target_line in line and 'SERIES_2D' in line:
-                    start_extracting = True
-                    continue
-                if '</SERIES_2D>' in line and start_extracting:
-                    break
-                if start_extracting and '<POINT_2D XY="' in line:
-                    data_str = line.split('"')[1]
-                    time_str, msd_str = data_str.split(',')[:2]
-                    try:
-                        msd_results[float(time_str)] = float(msd_str)
-                    except ValueError:
-                        pass
+            content = file.read()
+        series_match = re.search(f'Name="{target_line}".*?>(.*?)</SERIES_2D>', content, re.DOTALL)
+        if series_match:
+            points = re.findall(r'<POINT_2D XY="([^"]+)"', series_match.group(1))
+            for p_str in points:
+                time, msd = map(float, p_str.split(',')[:2])
+                msd_results[time] = msd
     except Exception as e:
         print(f"[Error] Failed to extract {target_line} from {os.path.basename(file_path)}: {e}")
     return msd_results
 
-def generate_colors(num_colors):
-    """Generates a list of distinct colors from a colormap."""
-    cmap = plt.get_cmap('plasma')
-    return [cmap(i) for i in np.linspace(0, 0.8, num_colors)]
-
-def load_data_for_plotting(csv_path, xcd_paths, cutoff_time):
+def load_data_for_plotting(config: Dict):
     """Loads and combines data from the CSV and additional XCD files for plotting."""
-    all_data = {'total': [], 'xx component': [], 'yy component': [], 'zz component': []}
-
-    # Load from CSV
+    csv_path, xcd_paths, cutoff_time = config['OUTPUT_CSV_PATH'], config['XCD_PATHS'], config['CUTOFF_TIME']
+    all_data = {k: [] for k in ['total', 'xx component', 'yy component', 'zz component']}
     try:
         df = pd.read_csv(csv_path)
-        df_truncated = df[df['Sample_Time (ps)'] >= cutoff_time].copy()
-        df_truncated['Relative_Time'] = df_truncated['Sample_Time (ps)'] - cutoff_time
-
-        sample_names = sorted(df_truncated['Sample_Name'].unique())
-        for name in sample_names:
-            group = df_truncated[df_truncated['Sample_Name'] == name]
-            x = group['Relative_Time'].values
-            all_data['total'].append((x, group['Total_MSD (Å²)'].values))
-            all_data['xx component'].append((x, group['X_MSD (Å²)'].values))
-            all_data['yy component'].append((x, group['Y_MSD (Å²)'].values))
-            all_data['zz component'].append((x, group['Z_MSD (Å²)'].values))
-        print(f"[Info] Loaded {len(sample_names)} samples from {os.path.basename(csv_path)}")
+        df['Relative_Time'] = df['Sample_Time (ps)'] - cutoff_time
+        for name in sorted(df['Sample_Name'].unique()):
+            group = df[df['Sample_Name'] == name]
+            all_data['total'].append((group['Relative_Time'].values, group['Total_MSD (Å²)'].values))
+            all_data['xx component'].append((group['Relative_Time'].values, group['X_MSD (Å²)'].values))
+            all_data['yy component'].append((group['Relative_Time'].values, group['Y_MSD (Å²)'].values))
+            all_data['zz component'].append((group['Relative_Time'].values, group['Z_MSD (Å²)'].values))
     except Exception as e:
         print(f"[Error] Failed to load CSV data for plotting: {e}")
 
-    # Load from XCD
     for path in xcd_paths:
         if not os.path.exists(path):
-            print(f"[Warning] XCD file for plotting not found: {path}")
+            print(f"[Warning] XCD file not found: {path}")
             continue
-
-        total_msd = extract_msd_from_xcd(path)
-        xx_msd = extract_msd_from_xcd(path, 'xx component')
-        yy_msd = extract_msd_from_xcd(path, 'yy component')
-        zz_msd = extract_msd_from_xcd(path, 'zz component')
-
-        for comp, msd_dict in [('total', total_msd), ('xx component', xx_msd),
-                               ('yy component', yy_msd), ('zz component', zz_msd)]:
+        for comp, msd_dict in [('total', extract_msd_from_xcd(path)),
+                               ('xx component', extract_msd_from_xcd(path, 'xx component')),
+                               ('yy component', extract_msd_from_xcd(path, 'yy component')),
+                               ('zz component', extract_msd_from_xcd(path, 'zz component'))]:
             if msd_dict:
-                times = np.array(sorted(msd_dict.keys()))
-                msds = np.array([msd_dict[t] for t in times])
+                times, msds = np.array(sorted(msd_dict.keys())), np.array([msd_dict[t] for t in sorted(msd_dict.keys())])
                 mask = times >= cutoff_time
                 if np.any(mask):
-                    rel_times = times[mask] - cutoff_time
-                    all_data[comp].append((rel_times, msds[mask]))
-        print(f"[Info] Loaded data from XCD: {os.path.basename(path)}")
-
+                    all_data[comp].append((times[mask] - cutoff_time, msds[mask]))
     return all_data
 
 def plot_style_1_individual_runs(all_data, temperature):
     """Plots each run with a distinct color."""
-    plot_style = PlotProperties()
-    cutoff_time = SETOFF_TIMES[temperature]
-    total_runs = len(all_data['total'])
-    colors = generate_colors(total_runs)
-    legend_labels = [f"Run {i+1}" for i in range(total_runs)]
-
-    setoff_text = r'$\mathrm{setoff}: ' + f'{cutoff_time:.1f}' + r'\ \mathrm{ps}$'
-    legend_title = f'{temperature} K Simulation\n' + setoff_text
-
+    plot_style, total_runs = PlotProperties(), len(all_data['total'])
+    colors = plt.get_cmap('plasma')(np.linspace(0, 0.8, total_runs))
+    legend_title = f'{temperature} K Simulation\n' + r'$\mathrm{setoff}: ' + f'{SETOFF_TIMES[temperature]:.1f}' + r'\ \mathrm{ps}$'
     plot_configs = Y_LIMITS_CONFIG[temperature]
 
-    for comp_key in ['total', 'xx component', 'yy component', 'zz component']:
+    for comp_key in plot_configs:
         plt_comp = plot_style.apply_style()
         for i, (x, y) in enumerate(all_data[comp_key]):
             if len(x) > 0 and len(y) > 0:
-                plt_comp.plot(x, y, color=colors[i], linestyle='--', linewidth=2, alpha=0.8,
-                              marker=".", markersize=10, label=legend_labels[i])
-
+                plt_comp.plot(x, y, color=colors[i], linestyle='--', lw=2, alpha=0.8, marker=".", ms=10, label=f"Run {i+1}")
         config = plot_configs[comp_key]
         plt_comp.ylim(config['ylim'])
         plt_comp.yticks(config['yticks'])
         plt_comp.legend(title=legend_title, loc='upper left', ncol=2, framealpha=1, edgecolor='k', fontsize=12, title_fontsize=14)
-
-        title = f"Total MSD – {temperature} K" if comp_key == 'total' else f"{config['label']} Direction – {temperature} K"
+        title = f"Total MSD – {temperature} K" if comp_key == 'total' else f"{config['label']} – {temperature} K"
         plt_comp.title(title, fontsize=plot_style.font_size, fontweight='bold', y=1.03)
-        plt_comp.tight_layout()
-
-def calculate_mean_by_time(data_list, dt, max_time):
-    """Calculates the mean of multiple time series using interpolation."""
-    if not data_list: return np.array([]), np.array([])
-
-    valid_data = [(t, m) for t, m in data_list if len(t) > 1 and len(m) > 1]
-    if not valid_data: return np.array([]), np.array([])
-
-    unified_t = np.arange(0, max_time, dt)
-    interpolated_msds = []
-
-    for t, m in valid_data:
-        if not np.all(np.diff(t) > 0): continue # Skip if time is not monotonic
-        f = interp1d(t, m, kind='linear', bounds_error=False, fill_value="extrapolate")
-        interpolated_msds.append(f(unified_t))
-
-    return (unified_t, np.mean(interpolated_msds, axis=0)) if interpolated_msds else (np.array([]), np.array([]))
 
 def plot_style_2_average_trend(all_data, temperature):
     """Plots all runs in grey and their average in red."""
     style = PlotProperties(fig_size=(12, 8))
-
-    # Determine the global time axis limit (shortest of all runs)
     all_max_times = [np.max(t) for t, _ in all_data['total'] if len(t) > 0]
-    if not all_max_times:
-        print("[Warning] No data available to plot for average trend style.")
-        return
+    if not all_max_times: return
     global_time_max = min(all_max_times)
 
-    plot_configs = [('total', 'Total MSD'), ('xx component', 'X[100]'),
-                    ('yy component', 'Y[010]'), ('zz component', 'Z[001]')]
-
+    plot_configs = [('total', 'Total MSD'), ('xx component', 'X[100]'), ('yy component', 'Y[010]'), ('zz component', 'Z[001]')]
     total_ylim = None
     for comp_key, comp_label in plot_configs:
         plt_comp = style.apply_style()
+        truncated_data = [(x[x <= global_time_max], y[x <= global_time_max]) for x, y in all_data[comp_key] if len(x) > 0]
+        for x, y in truncated_data:
+            plt_comp.plot(x, y, 'grey', linestyle='-', linewidth=2, alpha=0.3)
 
-        # Truncate data to global max time for averaging
-        truncated_data_for_avg = []
-        for x, y in all_data[comp_key]:
-            if len(x) > 0:
-                mask = x <= global_time_max
-                x_trunc, y_trunc = x[mask], y[mask]
-                if len(x_trunc) > 0:
-                    truncated_data_for_avg.append((x_trunc, y_trunc))
-                    plt_comp.plot(x_trunc, y_trunc, 'grey', linestyle='-', linewidth=2, alpha=0.3)
-
-        avg_time, avg_msd = calculate_mean_by_time(truncated_data_for_avg, INTERP_STEP, global_time_max)
-        if len(avg_time) > 0:
-            plt_comp.plot(avg_time, avg_msd, 'red', linewidth=4, label="Average")
+        unified_t = np.arange(0, global_time_max, INTERP_STEP)
+        interpolated_msds = [interp1d(t, m, bounds_error=False, fill_value="extrapolate")(unified_t) for t, m in truncated_data if np.all(np.diff(t) > 0)]
+        if interpolated_msds:
+            plt_comp.plot(unified_t, np.mean(interpolated_msds, axis=0), 'red', linewidth=4, label="Average")
 
         plt_comp.xlim(0, global_time_max)
         plt_comp.xticks(np.linspace(0, global_time_max, 6))
-
-        # Unify Y-axis for all components based on total MSD
         if comp_key == 'total':
-            all_msds = [item for _, y_list in truncated_data_for_avg for item in y_list]
-            total_ylim = (0, max(all_msds) * 1.1) if all_msds else (0, 1)
-
+            total_ylim = (0, max(y.max() for _, y in truncated_data) * 1.1 if truncated_data else 1)
         if total_ylim:
             plt_comp.ylim(total_ylim)
-            plt_comp.yticks(np.linspace(total_ylim[0], total_ylim[1], 6))
+            plt.yticks(np.linspace(total_ylim[0], total_ylim[1], 6))
 
         plt_comp.legend(loc='upper left', framealpha=1, edgecolor='k', fontsize=style.legend_size)
         plt_comp.title(f"{comp_label} - {temperature}K", fontsize=26, fontweight='bold', y=1.03)
 
-def run_plotting():
-    """Main function to orchestrate the plotting of MSD data."""
-    print("\n" + "=" * 60)
-    print("Starting Plotting")
-    print("=" * 60)
-
-    if not os.path.exists(OUTPUT_CSV_PATH):
-        print(f"[Error] Cannot start plotting. Required data file not found: {OUTPUT_CSV_PATH}")
+def run_plotting(config: Dict):
+    """Orchestrates the plotting of MSD data for a given temperature."""
+    temp = config['TEMP']
+    print("\n" + "=" * 70)
+    print(f"Starting Plotting for {temp}K")
+    print("=" * 70)
+    if not os.path.exists(config['OUTPUT_CSV_PATH']):
+        print(f"[Error] Cannot plot. Data file not found: {config['OUTPUT_CSV_PATH']}")
         return
+    all_plot_data = load_data_for_plotting(config)
+    plot_style_1_individual_runs(all_plot_data, temp)
+    plot_style_2_average_trend(all_plot_data, temp)
+    print(f"[Complete] Plotting for {temp}K finished.")
 
-    # Load all data for plotting
-    all_plot_data = load_data_for_plotting(OUTPUT_CSV_PATH, XCD_FILE_PATHS, CUTOFF_TIME)
+# ==============================================================================
+# --- 5. Main Execution ---
+# ==============================================================================
+def main():
+    """Main function to run the entire analysis workflow."""
+    all_configs_to_run = [CONFIG_700K, CONFIG_600K]
 
-    # Generate plots
-    print("[Info] Generating Plot Style 1: Individual Runs...")
-    plot_style_1_individual_runs(all_plot_data, TEMPERATURE)
+    for config in all_configs_to_run:
+        run_msd_calculation(config)
+        run_plotting(config)
 
-    print("[Info] Generating Plot Style 2: Average Trend...")
-    plot_style_2_average_trend(all_plot_data, TEMPERATURE)
-
-    print("\nAll plots generated. Displaying now...")
+    print("\n" + "="*70)
+    print("All analyses complete. Displaying all generated plots...")
+    print("="*70)
     plt.show()
 
-# ==============================================================================
-# --- 4. Main Execution ---
-# ==============================================================================
 if __name__ == "__main__":
-    # Step 1: Calculate MSD from raw trajectory data and save to CSV
-    run_msd_calculation()
-
-    # Step 2: Load the generated CSV and other data to create plots
-    run_plotting()
+    main()
