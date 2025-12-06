@@ -1,21 +1,22 @@
 # -*- coding: utf-8 -*-
 """
 A unified script for calculating and plotting Mean Squared Displacement (MSD) data
-from molecular dynamics simulations for multiple temperatures.
+from molecular dynamics simulations for multiple temperatures (700K, 600K, 500K).
 
-This script performs the following steps for each configured temperature (e.g., 700K, 600K):
-1.  Calculates MSD from raw XYZ and XCD trajectory files for a list of specified simulation runs.
-    - It handles interrupted simulations by merging trajectory segments and correcting timestamps.
-    - The calculated MSD data (total and per-component) is saved to a temperature-specific CSV file.
-2.  Loads the newly created CSV data along with data from additional, pre-existing XCD files.
-3.  Generates two styles of plots from the combined dataset:
-    a)  **Style 1 (Individual Runs):** Each simulation run is plotted as a distinct colored line
-        with markers, allowing for individual comparison.
-    b)  **Style 2 (Average Trend):** All individual runs are plotted as thin, grey lines,
-        with a prominent, thick red line representing the calculated average MSD. This style
-        emphasizes the overall trend.
-4.  All plots are styled using 'Times New Roman' font and formatted for publication quality.
-5.  Finally, all generated plots are displayed on screen.
+This script supports two distinct workflows based on a 'TASK_TYPE' configuration:
+1.  **'calculate_and_plot' (for 700K, 600K):**
+    - Calculates MSD from raw XYZ and XCD trajectory files.
+    - Saves the results to a temperature-specific CSV file.
+    - Loads the CSV data and additional XCD files to generate plots.
+2.  **'plot_from_existing' (for 500K):**
+    - Directly scans a directory for pre-calculated MSD.xcd files.
+    - Extracts data from these files to generate plots without performing new calculations.
+
+It generates two styles of plots for each temperature:
+a)  **Style 1 (Individual Runs):** Each run is plotted as a distinct colored line.
+b)  **Style 2 (Average Trend):** All runs are plotted in grey with a prominent red average line.
+
+Finally, all generated plots are displayed on screen.
 """
 
 import os
@@ -24,7 +25,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pandas as pd
 import gc
-from typing import List, Dict
+from typing import List, Dict, Tuple
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 
@@ -35,7 +36,7 @@ TARGET_ION = "Li"
 ROOT_FOLDER = r"E:\Materials Studio Projects\PEO_project_1_2_Files\Documents\Tri_comb\Crystal"
 INTERP_STEP = 1.0   # ps, for interpolation step in averaging
 
-# Plotting style configurations (used as lookups)
+# Shared plotting style configurations
 Y_LIMITS_CONFIG = {
     700: {
         'total': {'ylim': (0, 10000), 'yticks': np.arange(0, 10001, 1800)},
@@ -43,23 +44,30 @@ Y_LIMITS_CONFIG = {
         'yy component': {'ylim': (0, 3000), 'yticks': np.arange(0, 3001, 600), 'label': 'Y[010]'},
         'zz component': {'ylim': (0, 6000), 'yticks': np.arange(0, 6001, 1000), 'label': 'Z[001]'},
     },
-    600: { # Assuming 600K might have smaller MSD values, adjust if necessary
-        'total': {'ylim': (0, 8000), 'yticks': np.arange(0, 8001, 1600)},
-        'xx component': {'ylim': (0, 2500), 'yticks': np.arange(0, 2501, 500), 'label': 'X[100]'},
-        'yy component': {'ylim': (0, 2500), 'yticks': np.arange(0, 2501, 500), 'label': 'Y[010]'},
-        'zz component': {'ylim': (0, 4000), 'yticks': np.arange(0, 4001, 800), 'label': 'Z[001]'},
+    600: {
+        'total': {'ylim': (0, 3000), 'yticks': np.arange(0, 3001, 600)},
+        'xx component': {'ylim': (0, 1000), 'yticks': np.arange(0, 1001, 200), 'label': 'X[100]'},
+        'yy component': {'ylim': (0, 1000), 'yticks': np.arange(0, 1001, 200), 'label': 'Y[010]'},
+        'zz component': {'ylim': (0, 2500), 'yticks': np.arange(0, 2501, 500), 'label': 'Z[001]'},
+    },
+    500: {
+        'total': {'ylim': (0, 1000), 'yticks': np.arange(0, 1001, 200)},
+        'xx component': {'ylim': (0, 200), 'yticks': np.arange(0, 201, 50), 'label': 'X[100]'},
+        'yy component': {'ylim': (0, 100), 'yticks': np.arange(0, 101, 20), 'label': 'Y[010]'},
+        'zz component': {'ylim': (0, 700), 'yticks': np.arange(0, 701, 140), 'label': 'Z[001]'},
     }
 }
 SETOFF_TIMES = {
-    500: 47.5,
+    700: 27.0,
     600: 22.5,
-    700: 27.0
+    500: 47.5
 }
 
 # ==============================================================================
 # --- 2. Temperature-Specific Configurations ---
 # ==============================================================================
 CONFIG_700K = {
+    'TASK_TYPE': 'calculate_and_plot',
     'TEMP': 700,
     'CUTOFF_TIME': 27.0,
     'RUN_FOLDERS': [
@@ -69,10 +77,11 @@ CONFIG_700K = {
     'XCD_PATHS': [
         r"E:\Materials Studio Projects\PEO_project_1_2_Files\Documents\PEO_RUN\crystal\10ns\700K\supercell_17_700K_run_2\PEO_Li_final_supercell Forcite MSD.xcd",
     ],
-    'OUTPUT_CSV_PATH': os.path.join(ROOT_FOLDER, "MSD_from_27ps_700K_final.csv"),
+    'OUTPUT_CSV_PATH': os.path.join(ROOT_FOLDER, "MSD_from_27ps_700K.csv"),
 }
 
 CONFIG_600K = {
+    'TASK_TYPE': 'calculate_and_plot',
     'TEMP': 600,
     'CUTOFF_TIME': 22.5,
     'RUN_FOLDERS': [
@@ -86,9 +95,15 @@ CONFIG_600K = {
     'OUTPUT_CSV_PATH': os.path.join(ROOT_FOLDER, "MSD_from_22_5ps_600K.csv")
 }
 
+CONFIG_500K = {
+    'TASK_TYPE': 'plot_from_existing',
+    'TEMP': 500,
+    'CUTOFF_TIME': 47.5,
+    'DATA_ROOT': r'E:\Materials Studio Projects\PEO_project_1_2_Files\Documents\PEO_RUN\crystal\10ns\500K'
+}
 
 # ==============================================================================
-# --- 3. Core Data Parsing and MSD Calculation ---
+# --- 3. Core Data Parsing and MSD Calculation (For 'calculate_and_plot') ---
 # ==============================================================================
 def parse_xyz_file(file_path: str) -> List[Dict]:
     """Parses an XYZ file and returns a list of frames."""
@@ -229,7 +244,7 @@ def run_msd_calculation(config: Dict):
     print(f"\n[Complete] MSD calculation for {temp}K finished.")
 
 # ==============================================================================
-# --- 4. Plotting ---
+# --- 4. Data Loading and Plotting ---
 # ==============================================================================
 class PlotProperties:
     def __init__(self, font_type="Times New Roman", font_size=26, axis_ticks_font_size=24, label_x=r'Time / ps', label_y=r'MSD / $\AA^2$', fig_size=(8, 6), legend_size=20):
@@ -251,7 +266,7 @@ class PlotProperties:
         plt.tight_layout()
         return plt
 
-def extract_msd_from_xcd(file_path, component=None):
+def extract_msd_from_xcd(file_path, component=None) -> Dict[float, float]:
     """Extracts a pre-computed MSD data series from an XCD file."""
     msd_results = {}
     target_line = 'Total MSD' if component is None else component
@@ -268,9 +283,9 @@ def extract_msd_from_xcd(file_path, component=None):
         print(f"[Error] Failed to extract {target_line} from {os.path.basename(file_path)}: {e}")
     return msd_results
 
-def load_data_for_plotting(config: Dict):
-    """Loads and combines data from the CSV and additional XCD files for plotting."""
-    csv_path, xcd_paths, cutoff_time = config['OUTPUT_CSV_PATH'], config['XCD_PATHS'], config['CUTOFF_TIME']
+def load_data_from_csv_and_xcd(config: Dict) -> Dict[str, List[Tuple[np.ndarray, np.ndarray]]]:
+    """Loads and combines data from a CSV and additional XCD files."""
+    csv_path, xcd_paths, cutoff_time = config['OUTPUT_CSV_PATH'], config.get('XCD_PATHS', []), config['CUTOFF_TIME']
     all_data = {k: [] for k in ['total', 'xx component', 'yy component', 'zz component']}
     try:
         df = pd.read_csv(csv_path)
@@ -282,21 +297,43 @@ def load_data_for_plotting(config: Dict):
             all_data['yy component'].append((group['Relative_Time'].values, group['Y_MSD (Å²)'].values))
             all_data['zz component'].append((group['Relative_Time'].values, group['Z_MSD (Å²)'].values))
     except Exception as e:
-        print(f"[Error] Failed to load CSV data for plotting: {e}")
+        print(f"[Error] Failed to load CSV data: {e}")
 
     for path in xcd_paths:
         if not os.path.exists(path):
             print(f"[Warning] XCD file not found: {path}")
             continue
-        for comp, msd_dict in [('total', extract_msd_from_xcd(path)),
-                               ('xx component', extract_msd_from_xcd(path, 'xx component')),
-                               ('yy component', extract_msd_from_xcd(path, 'yy component')),
-                               ('zz component', extract_msd_from_xcd(path, 'zz component'))]:
+        for comp in all_data.keys():
+            msd_dict = extract_msd_from_xcd(path, comp if comp != 'total' else None)
             if msd_dict:
                 times, msds = np.array(sorted(msd_dict.keys())), np.array([msd_dict[t] for t in sorted(msd_dict.keys())])
                 mask = times >= cutoff_time
                 if np.any(mask):
                     all_data[comp].append((times[mask] - cutoff_time, msds[mask]))
+    return all_data
+
+def load_data_from_existing_xcds(config: Dict) -> Dict[str, List[Tuple[np.ndarray, np.ndarray]]]:
+    """Scans a directory for MSD.xcd files and loads data from them."""
+    data_root, cutoff_time = config['DATA_ROOT'], config['CUTOFF_TIME']
+    all_data = {k: [] for k in ['total', 'xx component', 'yy component', 'zz component']}
+
+    folder_pattern = rf'supercell_17_{config["TEMP"]}K_run_\d+'
+    subfolders = sorted([d for d in os.listdir(data_root) if re.match(folder_pattern, d)],
+                        key=lambda x: int(re.search(r'run_(\d+)', x).group(1)))
+
+    for folder in subfolders:
+        for dirpath, _, files in os.walk(os.path.join(data_root, folder)):
+            for f in files:
+                if f.endswith('MSD.xcd'):
+                    xcd_path = os.path.join(dirpath, f)
+                    for comp in all_data.keys():
+                        msd_dict = extract_msd_from_xcd(xcd_path, comp if comp != 'total' else None)
+                        if msd_dict:
+                            times, msds = np.array(sorted(msd_dict.keys())), np.array([msd_dict[t] for t in sorted(msd_dict.keys())])
+                            mask = times >= cutoff_time
+                            if np.any(mask):
+                                all_data[comp].append((times[mask] - cutoff_time, msds[mask]))
+                    break # Assume one MSD file per run folder
     return all_data
 
 def plot_style_1_individual_runs(all_data, temperature):
@@ -349,18 +386,14 @@ def plot_style_2_average_trend(all_data, temperature):
         plt_comp.legend(loc='upper left', framealpha=1, edgecolor='k', fontsize=style.legend_size)
         plt_comp.title(f"{comp_label} - {temperature}K", fontsize=26, fontweight='bold', y=1.03)
 
-def run_plotting(config: Dict):
+def run_plotting(config: Dict, all_data: Dict):
     """Orchestrates the plotting of MSD data for a given temperature."""
     temp = config['TEMP']
     print("\n" + "=" * 70)
     print(f"Starting Plotting for {temp}K")
     print("=" * 70)
-    if not os.path.exists(config['OUTPUT_CSV_PATH']):
-        print(f"[Error] Cannot plot. Data file not found: {config['OUTPUT_CSV_PATH']}")
-        return
-    all_plot_data = load_data_for_plotting(config)
-    plot_style_1_individual_runs(all_plot_data, temp)
-    plot_style_2_average_trend(all_plot_data, temp)
+    plot_style_1_individual_runs(all_data, temp)
+    plot_style_2_average_trend(all_data, temp)
     print(f"[Complete] Plotting for {temp}K finished.")
 
 # ==============================================================================
@@ -368,11 +401,30 @@ def run_plotting(config: Dict):
 # ==============================================================================
 def main():
     """Main function to run the entire analysis workflow."""
-    all_configs_to_run = [CONFIG_700K, CONFIG_600K]
+    all_configs_to_run = [CONFIG_700K, CONFIG_600K, CONFIG_500K]
 
     for config in all_configs_to_run:
-        run_msd_calculation(config)
-        run_plotting(config)
+        task_type = config['TASK_TYPE']
+
+        if task_type == 'calculate_and_plot':
+            run_msd_calculation(config)
+            if not os.path.exists(config['OUTPUT_CSV_PATH']):
+                print(f"[Error] MSD calculation for {config['TEMP']}K failed to produce an output file. Skipping plotting.")
+                continue
+            all_data = load_data_from_csv_and_xcd(config)
+
+        elif task_type == 'plot_from_existing':
+            all_data = load_data_from_existing_xcds(config)
+
+        else:
+            print(f"[Error] Unknown TASK_TYPE '{task_type}' for {config['TEMP']}K. Skipping.")
+            continue
+
+        if not any(all_data.values()):
+            print(f"[Warning] No data was loaded for {config['TEMP']}K. Skipping plotting.")
+            continue
+
+        run_plotting(config, all_data)
 
     print("\n" + "="*70)
     print("All analyses complete. Displaying all generated plots...")
