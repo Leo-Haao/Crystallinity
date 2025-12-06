@@ -16,7 +16,8 @@ It generates two styles of plots for each temperature:
 a)  **Style 1 (Individual Runs):** Each run is plotted as a distinct colored line.
 b)  **Style 2 (Average Trend):** All runs are plotted in grey with a prominent red average line.
 
-Finally, all generated plots are displayed on screen.
+Finally, it saves the calculated average MSD data for all temperatures to a single CSV file
+and displays all generated plots on screen.
 """
 
 import os
@@ -35,6 +36,9 @@ from scipy.interpolate import interp1d
 TARGET_ION = "Li"
 ROOT_FOLDER = r"E:\Materials Studio Projects\PEO_project_1_2_Files\Documents\Tri_comb\Crystal"
 INTERP_STEP = 1.0   # ps, for interpolation step in averaging
+OUTPUT_DIR = os.path.join(ROOT_FOLDER, "combined_analysis_output")
+AVERAGE_OUTPUT_PATH = os.path.join(OUTPUT_DIR, "All_Temperatures_Average_MSD.csv")
+
 
 # Shared plotting style configurations
 Y_LIMITS_CONFIG = {
@@ -355,53 +359,76 @@ def plot_style_1_individual_runs(all_data, temperature):
         title = f"Total MSD – {temperature} K" if comp_key == 'total' else f"{config['label']} – {temperature} K"
         plt_comp.title(title, fontsize=plot_style.font_size, fontweight='bold', y=1.03)
 
-def plot_style_2_average_trend(all_data, temperature):
-    """Plots all runs in grey and their average in red."""
+def plot_style_2_average_trend(all_data, temperature) -> Dict[str, np.ndarray]:
+    """Plots all runs in grey, their average in red, and returns the average data."""
     style = PlotProperties(fig_size=(12, 8))
     all_max_times = [np.max(t) for t, _ in all_data['total'] if len(t) > 0]
-    if not all_max_times: return
+    if not all_max_times:
+        return {}
     global_time_max = min(all_max_times)
 
-    plot_configs = [('total', 'Total MSD'), ('xx component', 'X[100]'), ('yy component', 'Y[010]'), ('zz component', 'Z[001]')]
+    plot_configs = [
+        ('total', 'Total MSD', 'Total_MSD_Avg'),
+        ('xx component', 'X[100]', 'X_MSD_Avg'),
+        ('yy component', 'Y[010]', 'Y_MSD_Avg'),
+        ('zz component', 'Z[001]', 'Z_MSD_Avg')
+    ]
+
     total_ylim = None
-    for comp_key, comp_label in plot_configs:
+    average_data_to_return = {}
+
+    for comp_key, comp_label, avg_col_name in plot_configs:
         plt_comp = style.apply_style()
         truncated_data = [(x[x <= global_time_max], y[x <= global_time_max]) for x, y in all_data[comp_key] if len(x) > 0]
+
         for x, y in truncated_data:
             plt_comp.plot(x, y, 'grey', linestyle='-', linewidth=2, alpha=0.3)
 
         unified_t = np.arange(0, global_time_max, INTERP_STEP)
         interpolated_msds = [interp1d(t, m, bounds_error=False, fill_value="extrapolate")(unified_t) for t, m in truncated_data if np.all(np.diff(t) > 0)]
+
         if interpolated_msds:
-            plt_comp.plot(unified_t, np.mean(interpolated_msds, axis=0), 'red', linewidth=4, label="Average")
+            avg_msd = np.mean(interpolated_msds, axis=0)
+            plt_comp.plot(unified_t, avg_msd, 'red', linewidth=4, label="Average")
+            # Store the average data for returning
+            if not average_data_to_return: # Store time axis only once
+                 average_data_to_return[f"Time_{temperature}K (ps)"] = unified_t
+            average_data_to_return[f"{avg_col_name}_{temperature}K (Å²)"] = avg_msd
 
         plt_comp.xlim(0, global_time_max)
         plt_comp.xticks(np.linspace(0, global_time_max, 6))
+
         if comp_key == 'total':
             total_ylim = (0, max(y.max() for _, y in truncated_data) * 1.1 if truncated_data else 1)
         if total_ylim:
             plt_comp.ylim(total_ylim)
-            plt.yticks(np.linspace(total_ylim[0], total_ylim[1], 6))
+            plt_comp.yticks(np.linspace(total_ylim[0], total_ylim[1], 6))
 
         plt_comp.legend(loc='upper left', framealpha=1, edgecolor='k', fontsize=style.legend_size)
         plt_comp.title(f"{comp_label} - {temperature}K", fontsize=26, fontweight='bold', y=1.03)
 
-def run_plotting(config: Dict, all_data: Dict):
-    """Orchestrates the plotting of MSD data for a given temperature."""
+    return average_data_to_return
+
+
+def run_plotting(config: Dict, all_data: Dict) -> Dict[str, np.ndarray]:
+    """Orchestrates the plotting and returns the average data."""
     temp = config['TEMP']
     print("\n" + "=" * 70)
     print(f"Starting Plotting for {temp}K")
     print("=" * 70)
     plot_style_1_individual_runs(all_data, temp)
-    plot_style_2_average_trend(all_data, temp)
+    average_data = plot_style_2_average_trend(all_data, temp)
     print(f"[Complete] Plotting for {temp}K finished.")
+    return average_data
 
 # ==============================================================================
 # --- 5. Main Execution ---
 # ==============================================================================
 def main():
     """Main function to run the entire analysis workflow."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     all_configs_to_run = [CONFIG_700K, CONFIG_600K, CONFIG_500K]
+    all_average_dataframes = []
 
     for config in all_configs_to_run:
         task_type = config['TASK_TYPE']
@@ -409,7 +436,7 @@ def main():
         if task_type == 'calculate_and_plot':
             run_msd_calculation(config)
             if not os.path.exists(config['OUTPUT_CSV_PATH']):
-                print(f"[Error] MSD calculation for {config['TEMP']}K failed to produce an output file. Skipping plotting.")
+                print(f"[Error] MSD calculation for {config['TEMP']}K failed. Skipping plotting.")
                 continue
             all_data = load_data_from_csv_and_xcd(config)
 
@@ -421,10 +448,22 @@ def main():
             continue
 
         if not any(all_data.values()):
-            print(f"[Warning] No data was loaded for {config['TEMP']}K. Skipping plotting.")
+            print(f"[Warning] No data loaded for {config['TEMP']}K. Skipping plotting.")
             continue
 
-        run_plotting(config, all_data)
+        # Run plotting and capture the returned average data
+        average_data = run_plotting(config, all_data)
+        if average_data:
+            all_average_dataframes.append(pd.DataFrame(average_data))
+
+    # Combine and save all average data to a single CSV
+    if all_average_dataframes:
+        print("\n" + "="*70)
+        print("Saving combined average MSD data...")
+        final_avg_df = pd.concat(all_average_dataframes, axis=1)
+        final_avg_df.to_csv(AVERAGE_OUTPUT_PATH, index=False, float_format='%.6f', encoding='utf-8-sig')
+        print(f"[Success] All average MSD data saved to:\n{AVERAGE_OUTPUT_PATH}")
+        print("="*70)
 
     print("\n" + "="*70)
     print("All analyses complete. Displaying all generated plots...")
