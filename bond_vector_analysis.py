@@ -64,7 +64,7 @@ def calculate_bond_vectors(structure, center_element='C', neighbor_element='C', 
 
 # --- Cell 2: Plotting Class and Functions ---
 class plot_properties:
-    def __init__(self, font_type='Times New Roman', font_size=26, axis_ticks_font_size=24,
+    def __init__(self, font_type='Times New Roman', font_size=40, axis_ticks_font_size=36,
                  legend_size=20):
         self.font_size = font_size
         self.axis_ticks_font_size = axis_ticks_font_size
@@ -170,7 +170,10 @@ def draw_heatmap(hist_2d, x_centers, y_centers, label_x, label_y, title):
     im = ax.imshow(hist_2d, origin='lower', extent=[x_centers[0], x_centers[-1], y_centers[0], y_centers[-1]],
                    aspect='auto', cmap='viridis', norm=LogNorm() if np.max(hist_2d) > 100 else None)
     cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label('Density', weight='bold', size=22)
+    cbar.set_label('Density', weight='bold', size=36)
+    cbar.ax.tick_params(labelsize=36)
+    for tick in cbar.ax.get_yticklabels():
+        tick.set_fontweight('bold')
 
     plt.tight_layout()
     plt.show()
