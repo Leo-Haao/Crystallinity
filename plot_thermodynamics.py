@@ -45,7 +45,7 @@ class plot_properties():
     """
     配置 SCI 论文标准的绘图样式，适配子图布局。
     """
-    def __init__(self, font_type='Times New Roman', font_size=26, axis_ticks_font_size=24, label_x="Time (ps)", label_y="",
+    def __init__(self, font_type='Times New Roman', font_size=20, axis_ticks_font_size=16, label_x="Time (ps)", label_y="",
                  legend_size=24):
 
         self.font_size = font_size
