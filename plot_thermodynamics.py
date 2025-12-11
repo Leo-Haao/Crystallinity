@@ -1,7 +1,6 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from monty.json import MSONable
 
 # -------------------------- 数据提取函数 --------------------------
 def temperature_xcd(folder_path):
@@ -35,17 +34,17 @@ def energy_xcd(folder_path):
         # 模拟数据
         x_data = np.linspace(0, 1000, 100)
         y_data_tot = 5 * np.sin(x_data / 100) + np.random.normal(0, 8, 100)
-        return {}, {}, dict(zip(x_data, y_data_tot))
+        total = dict(zip(x_data, y_data_tot))
     except Exception as e:
         print(f"能量文件读取错误：{e}")
-    return {}, {}, total
+    return total
 
 # -------------------------- SCI 论文单图样式类 --------------------------
 class plot_properties():
     """
     配置 SCI 论文标准的绘图样式，适配子图布局。
     """
-    def __init__(self, font_type='Times New Roman', font_size=20, axis_ticks_font_size=16, label_x="Time (ps)", label_y="",
+    def __init__(self, font_type='Times New Roman', font_size=26, axis_ticks_font_size=24, label_x="Time (ps)", label_y="",
                  legend_size=24):
 
         self.font_size = font_size
@@ -129,7 +128,7 @@ if __name__ == "__main__":
     # --- 数据提取 ---
     temp_data = temperature_xcd(file_paths['temperature'])
     den_data = density_xcd(file_paths['density'])
-    _, _, tot_data = energy_xcd(file_paths['energy'])
+    tot_data = energy_xcd(file_paths['energy'])
 
     # --- 数据整理 ---
     def format_data(data_dict):
