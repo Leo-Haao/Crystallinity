@@ -98,28 +98,29 @@ def main():
                 # 1. 为每个分量寻找独立的黄金窗口
                 t_start, t_end = find_best_window_for_component(time_raw, msd_raw)
 
-                # 2. 准备绘图数据 (Downsample)
+                # 2. 准备绘图数据 (Downsample) and apply mask for raw data plot
                 time_plot = time_raw[::AVG_DOWNSAMPLE]
                 msd_plot = (msd_raw - msd_raw[0])[::AVG_DOWNSAMPLE]
 
-                ax.plot(time_plot, msd_plot, color=COMP_COLORS[comp], linewidth=10, label=f'Avg {comp}', zorder=5)
+                plot_mask = (time_plot >= t_start) & (time_plot <= t_end)
+                ax.plot(time_plot[plot_mask], msd_plot[plot_mask], color=COMP_COLORS[comp], linewidth=10, label=f'Avg {comp}', zorder=5)
 
                 # 3. 在其专属窗口内进行拟合
-                mask = (time_raw >= t_start) & (time_raw <= t_end)
+                fit_mask = (time_raw >= t_start) & (time_raw <= t_end)
                 ay_v = msd_raw - msd_raw[0]
-                valid = (time_raw[mask] > 0) & (ay_v[mask] > 0)
+                valid = (time_raw[fit_mask] > 0) & (ay_v[fit_mask] > 0)
 
-                log_t = np.log10(time_raw[mask][valid])
-                log_msd = np.log10(ay_v[mask][valid])
+                log_t = np.log10(time_raw[fit_mask][valid])
+                log_msd = np.log10(ay_v[fit_mask][valid])
                 slope, intercept = np.polyfit(log_t, log_msd, 1)
 
                 d_comp = (10**intercept / 2.0) * 1e-7
                 print(f"{temp:<6} | {comp:<5} | {t_start:>5.1f} - {t_end:<5.1f} | {slope:<10.4f} | {d_comp:.4e}")
 
-                # 4. 绘制对应的拟合虚线
-                fit_x = np.logspace(np.log10(t_start), np.log10(t_end), 50)
-                fit_y = 10**(slope * np.log10(fit_x) + intercept)
-                ax.plot(fit_x, fit_y, '--', color='black', linewidth=4, alpha=0.7, zorder=10)
+                # 4. 绘制延伸整个图表区域的拟合虚线
+                fit_x_extended = np.logspace(np.log10(1e-2), np.log10(10), 100)
+                fit_y_extended = 10**(slope * np.log10(fit_x_extended) + intercept)
+                ax.plot(fit_x_extended, fit_y_extended, '--', color='black', linewidth=4, alpha=0.7, zorder=10)
 
         ax.legend(loc='lower right', fontsize=26)
         apply_beauty_style(ax, title_text=f'T={temp}K', is_first=(i==0))
