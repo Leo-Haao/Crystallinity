@@ -59,25 +59,23 @@ def auto_select_fit_range_precision(time_ns, msd_x, msd_y, msd_z, t_max=10.0):
 
             if 999 in slopes: continue # Skip windows with invalid fits
 
-            # --- NEW SCORING LOGIC ---
-            # Primary goal: Find where the average slope is close to 1 (diffusive regime).
-            # Secondary goals: Ensure slopes for X,Y,Z are consistent (low variance) and the fit is linear (high R²).
+            # --- REFINED SCORING LOGIC ---
+            # Primary goal: Minimize the deviation of EACH individual slope from the ideal value of 1.
+            # This is a more robust way to ensure all components are in the diffusive regime.
+            # We use Mean Squared Error for this penalty.
 
-            avg_slope = np.mean(slopes)
-            slope_deviation = abs(avg_slope - 1.0)
+            slopes_array = np.array(slopes)
+            slope_mse = np.mean((slopes_array - 1.0)**2) # Penalize deviation of *each* slope from 1
 
-            current_var = np.var(slopes)
             avg_r_sq = np.mean(r_sq_list)
 
-            # Weights to prioritize finding a slope near 1.
-            W_slope = 10.0
-            W_variance = 1.0
+            # Weights to prioritize finding slopes near 1.
+            W_slope_mse = 10.0
             W_r_squared = 1.0
 
             # Score = Weighted sum of penalties. Lower is better.
-            score = (slope_deviation * W_slope) + \
-                    (current_var * W_variance) + \
-                    ((1 - avg_r_sq) * W_r_squared)
+            # The variance is implicitly penalized by the MSE term, so we can simplify the score.
+            score = (slope_mse * W_slope_mse) + ((1 - avg_r_sq) * W_r_squared)
 
             if score < min_score:
                 min_score = score
